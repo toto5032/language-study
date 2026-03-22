@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>토토's Daily 영어 학습</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<div class="header">
+    <h1>Daily English</h1>
+    <p>매일 5문장, AI와 함께 영어 마스터하기</p>
+</div>
+
+<div class="container">
+
+    <!-- 주제 입력 -->
+    <div class="topic-section">
+        <h2>오늘의 학습 주제</h2>
+        <div class="topic-form">
+            <input type="text" id="topicInput"
+                   placeholder="예: 카페에서 주문하기, 병원 예약, 직장 동료와 대화..."
+                   onkeydown="if(event.key==='Enter') generateSentences()">
+            <button class="btn btn-primary" id="generateBtn" onclick="generateSentences()">
+                오늘의 문장 받기
+            </button>
+        </div>
+    </div>
+
+    <!-- 진행률 -->
+    <div class="progress-section" id="progressSection" style="display:none;"></div>
+
+    <!-- 문장 목록 -->
+    <div class="sentence-list" id="sentenceList">
+        <div class="empty-state">
+            <p>아직 오늘의 문장이 없습니다</p>
+            <p>위에서 주제를 입력하고 문장을 받아보세요!</p>
+        </div>
+    </div>
+
+    <!-- 학습 기록 -->
+    <div class="history-section" id="historySection"></div>
+
+</div>
+
+<!-- 채팅 모달 -->
+<div class="modal-overlay" id="chatModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>AI 튜터와 대화</h3>
+            <button class="modal-close" onclick="closeChat()">&times;</button>
+        </div>
+        <div class="chat-area" id="chatArea"></div>
+        <div class="chat-input-area">
+            <input type="text" id="chatInput" placeholder="영어로 대화해보세요...">
+            <button class="btn btn-primary btn-sm" onclick="sendMessage()">전송</button>
+        </div>
+        <div class="chat-actions">
+            <button class="btn btn-success btn-sm" onclick="evaluateAndComplete()">학습 평가 받기</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
