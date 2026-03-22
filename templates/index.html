@@ -26,6 +26,13 @@
                 오늘의 문장 받기
             </button>
         </div>
+        <!-- 난이도 선택 -->
+        <div class="difficulty-selector">
+            <span class="difficulty-label">난이도:</span>
+            <button class="difficulty-btn active" data-level="basic" onclick="selectDifficulty(this)">Basic</button>
+            <button class="difficulty-btn" data-level="intermediate" onclick="selectDifficulty(this)">Intermediate</button>
+            <button class="difficulty-btn" data-level="advanced" onclick="selectDifficulty(this)">Advanced</button>
+        </div>
     </div>
 
     <!-- 진행률 -->
@@ -54,6 +61,15 @@
         <div class="chat-area" id="chatArea"></div>
         <div class="chat-input-area">
             <input type="text" id="chatInput" placeholder="영어로 대화해보세요...">
+            <button class="btn-mic" id="micBtn" onclick="toggleVoice()" title="음성 입력">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+                <span class="rec-dot" id="recDot"></span>
+            </button>
             <button class="btn btn-primary btn-sm" onclick="sendMessage()">전송</button>
         </div>
         <div class="chat-actions">

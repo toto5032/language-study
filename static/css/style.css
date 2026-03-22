@@ -71,6 +71,57 @@ body {
     border-color: #667eea;
 }
 
+/* Difficulty Selector */
+.difficulty-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.difficulty-label {
+    font-size: 0.9rem;
+    color: #718096;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.difficulty-btn {
+    padding: 6px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 20px;
+    background: white;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #718096;
+}
+
+.difficulty-btn:hover {
+    border-color: #667eea;
+    color: #667eea;
+}
+
+.difficulty-btn.active[data-level="basic"] {
+    background: #48bb78;
+    border-color: #48bb78;
+    color: white;
+}
+
+.difficulty-btn.active[data-level="intermediate"] {
+    background: #ed8936;
+    border-color: #ed8936;
+    color: white;
+}
+
+.difficulty-btn.active[data-level="advanced"] {
+    background: #e53e3e;
+    border-color: #e53e3e;
+    color: white;
+}
+
+/* Buttons */
 .btn {
     padding: 12px 24px;
     border: none;
@@ -111,17 +162,6 @@ body {
 
 .btn-success:hover {
     background: #38a169;
-}
-
-.btn-outline {
-    background: transparent;
-    border: 2px solid #667eea;
-    color: #667eea;
-}
-
-.btn-outline:hover {
-    background: #667eea;
-    color: white;
 }
 
 /* Progress Bar */
@@ -181,6 +221,13 @@ body {
     opacity: 0.85;
 }
 
+.sentence-card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
 .sentence-card .number {
     display: inline-block;
     background: #667eea;
@@ -192,11 +239,47 @@ body {
     line-height: 28px;
     font-size: 0.85rem;
     font-weight: 700;
-    margin-right: 10px;
 }
 
 .sentence-card.completed .number {
     background: #48bb78;
+}
+
+.difficulty-badge {
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.difficulty-badge.basic {
+    background: #c6f6d5;
+    color: #276749;
+}
+
+.difficulty-badge.intermediate {
+    background: #feebc8;
+    color: #9c4221;
+}
+
+.difficulty-badge.advanced {
+    background: #fed7d7;
+    color: #9b2c2c;
+}
+
+.sentence-status {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-left: auto;
+}
+
+.status-completed {
+    color: #48bb78;
+}
+
+.status-pending {
+    color: #ed8936;
 }
 
 .sentence-english {
@@ -216,20 +299,6 @@ body {
     font-size: 0.85rem;
     color: #a0aec0;
     font-style: italic;
-}
-
-.sentence-status {
-    margin-top: 8px;
-    font-size: 0.85rem;
-    font-weight: 600;
-}
-
-.status-completed {
-    color: #48bb78;
-}
-
-.status-pending {
-    color: #ed8936;
 }
 
 /* Chat Modal */
@@ -298,11 +367,11 @@ body {
 }
 
 .chat-msg {
-    max-width: 80%;
+    max-width: 85%;
     padding: 12px 16px;
     border-radius: 16px;
     font-size: 0.95rem;
-    line-height: 1.5;
+    line-height: 1.6;
     white-space: pre-wrap;
 }
 
@@ -321,11 +390,52 @@ body {
     border-bottom-left-radius: 4px;
 }
 
+/* AI 코멘트 영역 */
+.chat-msg.assistant .comment-section {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px dashed #e2e8f0;
+    background: #fffbeb;
+    margin: 12px -16px -12px -16px;
+    padding: 12px 16px;
+    border-radius: 0 0 16px 4px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+/* 스피커 버튼 */
+.tts-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #718096;
+    margin-top: 8px;
+    transition: all 0.2s;
+}
+
+.tts-btn:hover {
+    background: #edf2f7;
+    color: #4a5568;
+}
+
+.tts-btn.playing {
+    color: #667eea;
+    border-color: #667eea;
+}
+
+/* Chat Input */
 .chat-input-area {
     padding: 16px 24px;
     border-top: 1px solid #e2e8f0;
     display: flex;
     gap: 10px;
+    align-items: center;
 }
 
 .chat-input-area input {
@@ -339,6 +449,60 @@ body {
 
 .chat-input-area input:focus {
     border-color: #667eea;
+}
+
+/* 마이크 버튼 */
+.btn-mic {
+    position: relative;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: 2px solid #e2e8f0;
+    background: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #718096;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.btn-mic:hover {
+    border-color: #667eea;
+    color: #667eea;
+}
+
+.btn-mic.recording {
+    border-color: #e53e3e;
+    color: #e53e3e;
+    animation: pulse-border 1.5s infinite;
+}
+
+.rec-dot {
+    display: none;
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 8px;
+    height: 8px;
+    background: #e53e3e;
+    border-radius: 50%;
+}
+
+.btn-mic.recording .rec-dot {
+    display: block;
+    animation: blink 1s infinite;
+}
+
+@keyframes pulse-border {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(229, 62, 62, 0); }
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
 }
 
 .chat-actions {
@@ -435,11 +599,23 @@ body {
     margin-bottom: 8px;
 }
 
+/* Voice unsupported notice */
+.voice-notice {
+    text-align: center;
+    padding: 8px;
+    background: #fefcbf;
+    color: #975a16;
+    font-size: 0.85rem;
+    border-radius: 8px;
+    margin: 8px 24px;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .header h1 { font-size: 1.4rem; }
     .container { padding: 12px; }
     .topic-form { flex-direction: column; }
+    .difficulty-selector { flex-wrap: wrap; }
     .modal { width: 95%; max-height: 90vh; }
     .chat-msg { max-width: 90%; }
 }

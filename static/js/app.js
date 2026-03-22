@@ -1,11 +1,23 @@
 let currentSentenceId = null;
+let selectedDifficulty = "basic";
+let recognition = null;
+let isRecording = false;
 
 // ─── 초기 로드 ───────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", () => {
     loadTodaySentences();
     loadHistory();
+    initSpeechRecognition();
 });
+
+// ─── 난이도 선택 ─────────────────────────────────────────────────
+
+function selectDifficulty(btn) {
+    document.querySelectorAll(".difficulty-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    selectedDifficulty = btn.dataset.level;
+}
 
 // ─── 문장 생성 ───────────────────────────────────────────────────
 
@@ -19,7 +31,7 @@ async function generateSentences() {
         const res = await fetch("/api/sentences/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ topic }),
+            body: JSON.stringify({ topic, difficulty: selectedDifficulty }),
         });
         const data = await res.json();
         renderSentences(data.sentences);
@@ -63,8 +75,9 @@ function renderSentences(sentences) {
 
     list.innerHTML = sentences.map((s, i) => `
         <div class="sentence-card ${s.completed ? 'completed' : ''}" onclick="openChat(${s.id})">
-            <div>
+            <div class="sentence-card-header">
                 <span class="number">${i + 1}</span>
+                <span class="difficulty-badge ${s.difficulty || 'basic'}">${s.difficulty || 'basic'}</span>
                 <span class="sentence-status ${s.completed ? 'status-completed' : 'status-pending'}">
                     ${s.completed ? '학습 완료' : '학습 중'}
                 </span>
@@ -102,7 +115,6 @@ async function openChat(sentenceId) {
     const overlay = document.getElementById("chatModal");
     overlay.classList.add("active");
 
-    // 대화 기록 로드
     const chatArea = document.getElementById("chatArea");
     chatArea.innerHTML = '<div class="loading">대화 기록 불러오는 중<span class="loading-dots"></span></div>';
 
@@ -113,13 +125,16 @@ async function openChat(sentenceId) {
         if (history.length === 0) {
             chatArea.innerHTML = `
                 <div class="chat-msg assistant">
-                    안녕하세요! 이 문장에 대해 함께 연습해볼까요? 😊<br>
+                    안녕하세요! 이 문장에 대해 함께 연습해볼까요?
                     영어로 이 문장을 사용해서 대화해보세요!
+                    <button class="tts-btn" onclick="speakText(this, this.closest('.chat-msg').childNodes[0].textContent)">
+                        🔊 듣기
+                    </button>
                 </div>`;
         } else {
-            chatArea.innerHTML = history.map(h => `
-                <div class="chat-msg ${h.role}">${h.content}</div>
-            `).join("");
+            chatArea.innerHTML = history.map(h =>
+                formatChatMessage(h.role, h.content)
+            ).join("");
         }
         chatArea.scrollTop = chatArea.scrollHeight;
     } catch (err) {
@@ -132,9 +147,50 @@ async function openChat(sentenceId) {
 function closeChat() {
     document.getElementById("chatModal").classList.remove("active");
     currentSentenceId = null;
-    // 문장 목록 새로고침
+    stopRecording();
     loadTodaySentences();
 }
+
+// ─── 메시지 포맷팅 (코멘트 분리) ─────────────────────────────────
+
+function formatChatMessage(role, content) {
+    if (role === "user") {
+        return `<div class="chat-msg user">${escapeHtml(content)}</div>`;
+    }
+
+    // assistant 메시지: --- 구분선으로 대화/코멘트 분리
+    const parts = content.split(/\n---\n/);
+    const conversation = parts[0].trim();
+    const comment = parts.length > 1 ? parts.slice(1).join("\n").trim() : null;
+
+    let html = `<div class="chat-msg assistant">`;
+    html += `<div>${formatMarkdown(conversation)}</div>`;
+
+    if (comment) {
+        html += `<div class="comment-section">${formatMarkdown(comment)}</div>`;
+    }
+
+    // TTS 버튼 (대화 부분만 읽기)
+    const ttsText = conversation.replace(/\*\*.*?\*\*/g, '').replace(/[#*_`]/g, '');
+    html += `<button class="tts-btn" onclick="speakText(this, ${JSON.stringify(ttsText)})">🔊 듣기</button>`;
+    html += `</div>`;
+
+    return html;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatMarkdown(text) {
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+}
+
+// ─── 메시지 전송 ─────────────────────────────────────────────────
 
 async function sendMessage() {
     const input = document.getElementById("chatInput");
@@ -143,12 +199,10 @@ async function sendMessage() {
 
     const chatArea = document.getElementById("chatArea");
 
-    // 사용자 메시지 표시
-    chatArea.innerHTML += `<div class="chat-msg user">${message}</div>`;
+    chatArea.innerHTML += `<div class="chat-msg user">${escapeHtml(message)}</div>`;
     input.value = "";
     chatArea.scrollTop = chatArea.scrollHeight;
 
-    // 로딩 표시
     chatArea.innerHTML += '<div class="chat-msg assistant loading-msg">입력 중<span class="loading-dots"></span></div>';
     chatArea.scrollTop = chatArea.scrollHeight;
 
@@ -163,11 +217,10 @@ async function sendMessage() {
         });
         const data = await res.json();
 
-        // 로딩 메시지 제거 후 응답 표시
         const loadingMsg = chatArea.querySelector(".loading-msg");
         if (loadingMsg) loadingMsg.remove();
 
-        chatArea.innerHTML += `<div class="chat-msg assistant">${data.reply}</div>`;
+        chatArea.innerHTML += formatChatMessage("assistant", data.reply);
         chatArea.scrollTop = chatArea.scrollHeight;
     } catch (err) {
         const loadingMsg = chatArea.querySelector(".loading-msg");
@@ -175,6 +228,8 @@ async function sendMessage() {
         chatArea.innerHTML += '<div class="chat-msg assistant">죄송합니다. 오류가 발생했습니다.</div>';
     }
 }
+
+// ─── 학습 평가 ───────────────────────────────────────────────────
 
 async function evaluateAndComplete() {
     if (!currentSentenceId) return;
@@ -189,7 +244,6 @@ async function evaluateAndComplete() {
         });
         const data = await res.json();
 
-        // 로딩 제거
         const loading = chatArea.querySelector(".loading:last-child");
         if (loading) loading.remove();
 
@@ -207,7 +261,105 @@ async function evaluateAndComplete() {
     }
 }
 
-// Enter 키로 전송
+// ─── 음성 인식 (STT) ─────────────────────────────────────────────
+
+function initSpeechRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        console.log("Speech Recognition not supported");
+        return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event) => {
+        const input = document.getElementById("chatInput");
+        let finalTranscript = "";
+        let interimTranscript = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+                finalTranscript += event.results[i][0].transcript;
+            } else {
+                interimTranscript += event.results[i][0].transcript;
+            }
+        }
+
+        input.value = finalTranscript || interimTranscript;
+    };
+
+    recognition.onend = () => {
+        isRecording = false;
+        document.getElementById("micBtn").classList.remove("recording");
+    };
+
+    recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        isRecording = false;
+        document.getElementById("micBtn").classList.remove("recording");
+    };
+}
+
+function toggleVoice() {
+    if (!recognition) {
+        alert("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.");
+        return;
+    }
+
+    if (isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+function startRecording() {
+    if (!recognition) return;
+    isRecording = true;
+    document.getElementById("micBtn").classList.add("recording");
+    document.getElementById("chatInput").placeholder = "말씀하세요...";
+    recognition.start();
+}
+
+function stopRecording() {
+    if (!recognition || !isRecording) return;
+    isRecording = false;
+    document.getElementById("micBtn").classList.remove("recording");
+    document.getElementById("chatInput").placeholder = "영어로 대화해보세요...";
+    recognition.stop();
+}
+
+// ─── 음성 합성 (TTS) ─────────────────────────────────────────────
+
+function speakText(btn, text) {
+    if (!window.speechSynthesis) {
+        alert("이 브라우저는 음성 합성을 지원하지 않습니다.");
+        return;
+    }
+
+    // 이미 재생 중이면 중지
+    if (speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+        document.querySelectorAll(".tts-btn.playing").forEach(b => b.classList.remove("playing"));
+        return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "en-US";
+    utterance.rate = 0.9;
+
+    btn.classList.add("playing");
+    utterance.onend = () => btn.classList.remove("playing");
+    utterance.onerror = () => btn.classList.remove("playing");
+
+    speechSynthesis.speak(utterance);
+}
+
+// ─── 키보드 이벤트 ───────────────────────────────────────────────
+
 document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && document.getElementById("chatModal").classList.contains("active")) {
         e.preventDefault();
@@ -215,7 +367,6 @@ document.addEventListener("keydown", (e) => {
     }
 });
 
-// 모달 외부 클릭으로 닫기
 document.getElementById("chatModal")?.addEventListener("click", (e) => {
     if (e.target.classList.contains("modal-overlay")) {
         closeChat();
