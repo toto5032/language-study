@@ -9,7 +9,29 @@ document.addEventListener("DOMContentLoaded", () => {
     loadTodaySentences();
     loadHistory();
     initSpeechRecognition();
+    initTTSVoices();
 });
+
+// ─── TTS 음성 초기화 ─────────────────────────────────────────────
+
+let ttsVoice = null;
+
+function initTTSVoices() {
+    if (!window.speechSynthesis) return;
+
+    function setVoice() {
+        const voices = speechSynthesis.getVoices();
+        // 영어 음성 우선 선택
+        ttsVoice = voices.find(v => v.lang === "en-US" && v.name.includes("Google"))
+            || voices.find(v => v.lang === "en-US")
+            || voices.find(v => v.lang.startsWith("en"))
+            || null;
+    }
+
+    setVoice();
+    // Chrome에서는 비동기로 로드됨
+    speechSynthesis.onvoiceschanged = setVoice;
+}
 
 // ─── 난이도 선택 ─────────────────────────────────────────────────
 
@@ -17,6 +39,8 @@ function selectDifficulty(btn) {
     document.querySelectorAll(".difficulty-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     selectedDifficulty = btn.dataset.level;
+    // 난이도 변경 시 해당 난이도의 기존 문장 로드
+    loadTodaySentences();
 }
 
 // ─── 문장 생성 ───────────────────────────────────────────────────
@@ -36,6 +60,7 @@ async function generateSentences() {
         const data = await res.json();
         renderSentences(data.sentences);
         updateProgress(data.sentences);
+        showResetButton(data.sentences.length > 0);
     } catch (err) {
         alert("문장 생성에 실패했습니다. 다시 시도해주세요.");
         console.error(err);
@@ -45,15 +70,50 @@ async function generateSentences() {
     }
 }
 
+// ─── 문장 리셋 ───────────────────────────────────────────────────
+
+async function resetSentences() {
+    if (!confirm(`${selectedDifficulty.toUpperCase()} 난이도의 오늘 문장을 초기화하시겠습니까?\n대화 기록도 함께 삭제됩니다.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/sentences/reset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ difficulty: selectedDifficulty }),
+        });
+        const data = await res.json();
+
+        // 초기화 후 빈 화면 표시
+        renderSentences([]);
+        updateProgress([]);
+        showResetButton(false);
+        loadHistory();
+    } catch (err) {
+        alert("초기화에 실패했습니다.");
+        console.error(err);
+    }
+}
+
+function showResetButton(show) {
+    document.getElementById("resetSection").style.display = show ? "block" : "none";
+}
+
 // ─── 오늘의 문장 로드 ────────────────────────────────────────────
 
 async function loadTodaySentences() {
     try {
-        const res = await fetch("/api/sentences");
+        const res = await fetch(`/api/sentences?difficulty=${selectedDifficulty}`);
         const sentences = await res.json();
         if (sentences.length > 0) {
             renderSentences(sentences);
             updateProgress(sentences);
+            showResetButton(true);
+        } else {
+            renderSentences([]);
+            updateProgress([]);
+            showResetButton(false);
         }
     } catch (err) {
         console.error(err);
@@ -79,10 +139,13 @@ function renderSentences(sentences) {
                 <span class="number">${i + 1}</span>
                 <span class="difficulty-badge ${s.difficulty || 'basic'}">${s.difficulty || 'basic'}</span>
                 <span class="sentence-status ${s.completed ? 'status-completed' : 'status-pending'}">
-                    ${s.completed ? '학습 완료' : '학습 중'}
+                    ${s.completed ? '✅ 학습 완료' : '📖 학습 중'}
                 </span>
             </div>
-            <div class="sentence-english">${s.english}</div>
+            <div class="sentence-english">
+                ${s.english}
+                <button class="tts-btn-inline" onclick="event.stopPropagation(); speakText(this, '${s.english.replace(/'/g, "\\'")}')">🔊</button>
+            </div>
             <div class="sentence-korean">${s.korean}</div>
             <div class="sentence-situation">${s.situation}</div>
         </div>
@@ -125,11 +188,8 @@ async function openChat(sentenceId) {
         if (history.length === 0) {
             chatArea.innerHTML = `
                 <div class="chat-msg assistant">
-                    안녕하세요! 이 문장에 대해 함께 연습해볼까요?
-                    영어로 이 문장을 사용해서 대화해보세요!
-                    <button class="tts-btn" onclick="speakText(this, this.closest('.chat-msg').childNodes[0].textContent)">
-                        🔊 듣기
-                    </button>
+                    <div>안녕하세요! 이 문장에 대해 함께 연습해볼까요?<br>영어로 이 문장을 사용해서 대화해보세요!</div>
+                    <button class="tts-btn" onclick="speakText(this, 'Hello! Shall we practice this sentence together? Try using this sentence in English!')">🔊 듣기</button>
                 </div>`;
         } else {
             chatArea.innerHTML = history.map(h =>
@@ -148,6 +208,10 @@ function closeChat() {
     document.getElementById("chatModal").classList.remove("active");
     currentSentenceId = null;
     stopRecording();
+    // TTS 재생 중이면 중지
+    if (window.speechSynthesis && speechSynthesis.speaking) {
+        speechSynthesis.cancel();
+    }
     loadTodaySentences();
 }
 
@@ -163,6 +227,10 @@ function formatChatMessage(role, content) {
     const conversation = parts[0].trim();
     const comment = parts.length > 1 ? parts.slice(1).join("\n").trim() : null;
 
+    // TTS용 텍스트: 영어 부분만 추출 (마크다운 제거)
+    const ttsText = conversation.replace(/\*\*.*?\*\*/g, '').replace(/[#*_`]/g, '').trim();
+    const safeTtsText = JSON.stringify(ttsText);
+
     let html = `<div class="chat-msg assistant">`;
     html += `<div>${formatMarkdown(conversation)}</div>`;
 
@@ -170,9 +238,7 @@ function formatChatMessage(role, content) {
         html += `<div class="comment-section">${formatMarkdown(comment)}</div>`;
     }
 
-    // TTS 버튼 (대화 부분만 읽기)
-    const ttsText = conversation.replace(/\*\*.*?\*\*/g, '').replace(/[#*_`]/g, '');
-    html += `<button class="tts-btn" onclick="speakText(this, ${JSON.stringify(ttsText)})">🔊 듣기</button>`;
+    html += `<button class="tts-btn" onclick="speakText(this, ${safeTtsText})">🔊 듣기</button>`;
     html += `</div>`;
 
     return html;
@@ -343,17 +409,47 @@ function speakText(btn, text) {
     // 이미 재생 중이면 중지
     if (speechSynthesis.speaking) {
         speechSynthesis.cancel();
-        document.querySelectorAll(".tts-btn.playing").forEach(b => b.classList.remove("playing"));
+        document.querySelectorAll(".tts-btn.playing, .tts-btn-inline.playing").forEach(b => b.classList.remove("playing"));
         return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    // 텍스트 정리
+    const cleanText = text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    if (!cleanText) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = "en-US";
-    utterance.rate = 0.9;
+    utterance.rate = 0.85;
+    utterance.pitch = 1.0;
+
+    // 영어 음성 설정
+    if (ttsVoice) {
+        utterance.voice = ttsVoice;
+    }
 
     btn.classList.add("playing");
     utterance.onend = () => btn.classList.remove("playing");
     utterance.onerror = () => btn.classList.remove("playing");
+
+    // Chrome 긴 텍스트 버그 우회: 15초마다 resume
+    let resumeTimer = null;
+    if (cleanText.length > 100) {
+        resumeTimer = setInterval(() => {
+            if (speechSynthesis.speaking && !speechSynthesis.paused) {
+                speechSynthesis.pause();
+                speechSynthesis.resume();
+            }
+        }, 14000);
+    }
+
+    utterance.onend = () => {
+        btn.classList.remove("playing");
+        if (resumeTimer) clearInterval(resumeTimer);
+    };
+    utterance.onerror = () => {
+        btn.classList.remove("playing");
+        if (resumeTimer) clearInterval(resumeTimer);
+    };
 
     speechSynthesis.speak(utterance);
 }

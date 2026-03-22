@@ -6,7 +6,7 @@ from flask import Flask, render_template, request, jsonify, g
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=True)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key")
@@ -283,30 +283,28 @@ def index():
 
 @app.route("/api/sentences", methods=["GET"])
 def get_sentences():
-    """오늘의 문장 조회"""
+    """오늘의 문장 조회 (난이도 필터 지원)"""
     db = get_db()
     today = date.today().isoformat()
-    rows = db.execute(
-        "SELECT * FROM sentences WHERE date = ? ORDER BY id", (today,)
-    ).fetchall()
+    difficulty = request.args.get("difficulty", "")
+
+    if difficulty and difficulty in DIFFICULTY_LABELS:
+        rows = db.execute(
+            "SELECT * FROM sentences WHERE date = ? AND difficulty = ? ORDER BY id",
+            (today, difficulty)
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT * FROM sentences WHERE date = ? ORDER BY id", (today,)
+        ).fetchall()
     return jsonify([dict(r) for r in rows])
 
 
 @app.route("/api/sentences/generate", methods=["POST"])
 def generate_sentences():
-    """오늘의 문장 생성"""
+    """오늘의 문장 생성 (난이도별)"""
     db = get_db()
     today = date.today().isoformat()
-
-    existing = db.execute(
-        "SELECT COUNT(*) as cnt FROM sentences WHERE date = ?", (today,)
-    ).fetchone()["cnt"]
-
-    if existing > 0:
-        rows = db.execute(
-            "SELECT * FROM sentences WHERE date = ? ORDER BY id", (today,)
-        ).fetchall()
-        return jsonify({"sentences": [dict(r) for r in rows], "message": "오늘의 문장이 이미 있습니다."})
 
     data = request.get_json() or {}
     topic = data.get("topic", "")
@@ -314,6 +312,19 @@ def generate_sentences():
 
     if difficulty not in DIFFICULTY_LABELS:
         difficulty = "basic"
+
+    # 같은 날짜 + 같은 난이도 문장이 있는지 확인
+    existing = db.execute(
+        "SELECT COUNT(*) as cnt FROM sentences WHERE date = ? AND difficulty = ?",
+        (today, difficulty)
+    ).fetchone()["cnt"]
+
+    if existing > 0:
+        rows = db.execute(
+            "SELECT * FROM sentences WHERE date = ? AND difficulty = ? ORDER BY id",
+            (today, difficulty)
+        ).fetchall()
+        return jsonify({"sentences": [dict(r) for r in rows], "message": f"{DIFFICULTY_LABELS[difficulty]} 문장이 이미 있습니다."})
 
     sentences = generate_daily_sentences(topic, difficulty)
 
@@ -325,9 +336,42 @@ def generate_sentences():
     db.commit()
 
     rows = db.execute(
-        "SELECT * FROM sentences WHERE date = ? ORDER BY id", (today,)
+        "SELECT * FROM sentences WHERE date = ? AND difficulty = ? ORDER BY id",
+        (today, difficulty)
     ).fetchall()
     return jsonify({"sentences": [dict(r) for r in rows], "message": "새로운 문장이 생성되었습니다!"})
+
+
+@app.route("/api/sentences/reset", methods=["POST"])
+def reset_sentences():
+    """오늘의 문장 리셋 (대화/평가 기록도 삭제)"""
+    db = get_db()
+    today = date.today().isoformat()
+
+    data = request.get_json() or {}
+    difficulty = data.get("difficulty", "")
+
+    # 난이도 지정 시 해당 난이도만 삭제, 아니면 오늘 전체 삭제
+    if difficulty and difficulty in DIFFICULTY_LABELS:
+        sentence_ids = db.execute(
+            "SELECT id FROM sentences WHERE date = ? AND difficulty = ?",
+            (today, difficulty)
+        ).fetchall()
+    else:
+        sentence_ids = db.execute(
+            "SELECT id FROM sentences WHERE date = ?", (today,)
+        ).fetchall()
+
+    ids = [r["id"] for r in sentence_ids]
+
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        db.execute(f"DELETE FROM conversations WHERE sentence_id IN ({placeholders})", ids)
+        db.execute(f"DELETE FROM evaluations WHERE sentence_id IN ({placeholders})", ids)
+        db.execute(f"DELETE FROM sentences WHERE id IN ({placeholders})", ids)
+        db.commit()
+
+    return jsonify({"message": "문장이 초기화되었습니다.", "deleted": len(ids)})
 
 
 @app.route("/api/chat", methods=["POST"])
