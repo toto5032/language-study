@@ -143,11 +143,11 @@ function renderSentences(sentences) {
                 </span>
             </div>
             <div class="sentence-english">
-                ${s.english}
-                <button class="tts-btn-inline" onclick="event.stopPropagation(); speakText(this, '${s.english.replace(/'/g, "\\'")}')">🔊</button>
+                ${escapeHtml(s.english)}
+                <button class="tts-btn-inline" data-tts="${escapeHtml(s.english)}" onclick="event.stopPropagation(); speakText(this, this.dataset.tts)">🔊</button>
             </div>
-            <div class="sentence-korean">${s.korean}</div>
-            <div class="sentence-situation">${s.situation}</div>
+            <div class="sentence-korean">${escapeHtml(s.korean)}</div>
+            <div class="sentence-situation">${escapeHtml(s.situation)}</div>
         </div>
     `).join("");
 }
@@ -229,7 +229,6 @@ function formatChatMessage(role, content) {
 
     // TTS용 텍스트: 영어 부분만 추출 (마크다운 제거)
     const ttsText = conversation.replace(/\*\*.*?\*\*/g, '').replace(/[#*_`]/g, '').trim();
-    const safeTtsText = JSON.stringify(ttsText);
 
     let html = `<div class="chat-msg assistant">`;
     html += `<div>${formatMarkdown(conversation)}</div>`;
@@ -238,7 +237,7 @@ function formatChatMessage(role, content) {
         html += `<div class="comment-section">${formatMarkdown(comment)}</div>`;
     }
 
-    html += `<button class="tts-btn" onclick="speakText(this, ${safeTtsText})">🔊 듣기</button>`;
+    html += `<button class="tts-btn" data-tts="${escapeAttr(ttsText)}" onclick="speakText(this, this.dataset.tts)">🔊 듣기</button>`;
     html += `</div>`;
 
     return html;
@@ -248,6 +247,10 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function escapeAttr(text) {
+    return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function formatMarkdown(text) {
@@ -402,53 +405,77 @@ function stopRecording() {
 
 function speakText(btn, text) {
     if (!window.speechSynthesis) {
-        alert("이 브라우저는 음성 합성을 지원하지 않습니다.");
+        alert("이 브라우저는 음성 합성을 지원하지 않습니다.\nChrome 브라우저를 사용해주세요.");
         return;
     }
 
     // 이미 재생 중이면 중지
-    if (speechSynthesis.speaking) {
+    if (speechSynthesis.speaking || speechSynthesis.pending) {
         speechSynthesis.cancel();
         document.querySelectorAll(".tts-btn.playing, .tts-btn-inline.playing").forEach(b => b.classList.remove("playing"));
         return;
     }
 
-    // 텍스트 정리
-    const cleanText = text.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
-    if (!cleanText) return;
+    // 텍스트 정리: HTML 태그, 마크다운, 이모지 제거
+    const cleanText = text
+        .replace(/<[^>]*>/g, '')
+        .replace(/[\u{1F600}-\u{1F9FF}]/gu, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (!cleanText) {
+        console.warn("TTS: 읽을 텍스트가 없습니다.");
+        return;
+    }
+
+    console.log("TTS 재생:", cleanText.substring(0, 50) + "...");
+
+    // 음성 목록 확인 및 재로드
+    let voices = speechSynthesis.getVoices();
+    if (voices.length === 0) {
+        // 음성이 아직 로드되지 않은 경우 잠시 대기 후 재시도
+        setTimeout(() => speakText(btn, text), 200);
+        return;
+    }
+
+    // 영어 음성 선택
+    const enVoice = voices.find(v => v.lang === "en-US" && v.name.includes("Google"))
+        || voices.find(v => v.lang === "en-US")
+        || voices.find(v => v.lang.startsWith("en"))
+        || null;
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = "en-US";
     utterance.rate = 0.85;
     utterance.pitch = 1.0;
+    utterance.volume = 1.0;
 
-    // 영어 음성 설정
-    if (ttsVoice) {
-        utterance.voice = ttsVoice;
+    if (enVoice) {
+        utterance.voice = enVoice;
     }
 
     btn.classList.add("playing");
-    utterance.onend = () => btn.classList.remove("playing");
-    utterance.onerror = () => btn.classList.remove("playing");
 
-    // Chrome 긴 텍스트 버그 우회: 15초마다 resume
+    // Chrome 긴 텍스트 버그 우회
     let resumeTimer = null;
-    if (cleanText.length > 100) {
+    if (cleanText.length > 80) {
         resumeTimer = setInterval(() => {
             if (speechSynthesis.speaking && !speechSynthesis.paused) {
                 speechSynthesis.pause();
                 speechSynthesis.resume();
             }
-        }, 14000);
+        }, 10000);
     }
 
-    utterance.onend = () => {
+    const cleanup = () => {
         btn.classList.remove("playing");
         if (resumeTimer) clearInterval(resumeTimer);
     };
-    utterance.onerror = () => {
-        btn.classList.remove("playing");
-        if (resumeTimer) clearInterval(resumeTimer);
+
+    utterance.onend = cleanup;
+    utterance.onerror = (e) => {
+        console.error("TTS 오류:", e.error);
+        cleanup();
     };
 
     speechSynthesis.speak(utterance);
