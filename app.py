@@ -542,7 +542,7 @@ def tts():
 
 @app.route("/api/stt", methods=["POST"])
 def stt():
-    """Google Cloud Speech-to-Text 음성 인식"""
+    """Faster Whisper 로컬 음성 인식"""
     if "audio" not in request.files:
         return jsonify({"error": "audio 파일이 필요합니다."}), 400
 
@@ -553,38 +553,40 @@ def stt():
         return jsonify({"error": "빈 오디오 파일"}), 400
 
     try:
-        from google.cloud import speech
+        import tempfile
+        from faster_whisper import WhisperModel
 
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "credentials.json"
+        # 모델 로드 (최초 1회만, 이후 캐시)
+        global whisper_model
+        if 'whisper_model' not in globals() or whisper_model is None:
+            print("🎙 Whisper 모델 로딩 중 (최초 1회)...")
+            whisper_model = WhisperModel("base.en", device="cpu", compute_type="int8")
+            print("✅ Whisper 모델 로딩 완료")
+
+        # 임시 파일로 저장 후 인식
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+            tmp.write(audio_data)
+            tmp_path = tmp.name
+
+        segments, info = whisper_model.transcribe(
+            tmp_path,
+            language="en",
+            beam_size=5,
+            vad_filter=True,
         )
 
-        client_stt = speech.SpeechClient()
+        transcript = " ".join(seg.text.strip() for seg in segments)
 
-        audio = speech.RecognitionAudio(content=audio_data)
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-            sample_rate_hertz=48000,
-            language_code="en-US",
-            enable_automatic_punctuation=True,
-            model="latest_long",
-            use_enhanced=True,
-            alternative_language_codes=["en-GB", "en-AU"],
-        )
+        # 임시 파일 삭제
+        os.unlink(tmp_path)
 
-        response = client_stt.recognize(config=config, audio=audio)
-
-        if not response.results:
-            return jsonify({"text": "", "confidence": 0})
-
-        result = response.results[0]
-        transcript = result.alternatives[0].transcript
-        confidence = result.alternatives[0].confidence
-
-        return jsonify({"text": transcript, "confidence": round(confidence, 3)})
+        return jsonify({
+            "text": transcript,
+            "confidence": round(info.language_probability, 3) if info else 0,
+        })
 
     except ImportError:
-        return jsonify({"error": "google-cloud-speech 패키지가 설치되지 않았습니다."}), 500
+        return jsonify({"error": "faster-whisper 패키지가 설치되지 않았습니다. pip install faster-whisper"}), 500
     except Exception as e:
         app.logger.error(f"STT 오류: {e}")
         return jsonify({"error": f"음성 인식 실패: {str(e)}"}), 500
