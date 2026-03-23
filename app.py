@@ -540,6 +540,56 @@ def tts():
         return jsonify({"error": f"TTS 생성 실패: {str(e)}"}), 500
 
 
+@app.route("/api/stt", methods=["POST"])
+def stt():
+    """Google Cloud Speech-to-Text 음성 인식"""
+    if "audio" not in request.files:
+        return jsonify({"error": "audio 파일이 필요합니다."}), 400
+
+    audio_file = request.files["audio"]
+    audio_data = audio_file.read()
+
+    if len(audio_data) == 0:
+        return jsonify({"error": "빈 오디오 파일"}), 400
+
+    try:
+        from google.cloud import speech
+
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "credentials.json"
+        )
+
+        client_stt = speech.SpeechClient()
+
+        audio = speech.RecognitionAudio(content=audio_data)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+            sample_rate_hertz=48000,
+            language_code="en-US",
+            enable_automatic_punctuation=True,
+            model="latest_long",
+            use_enhanced=True,
+            alternative_language_codes=["en-GB", "en-AU"],
+        )
+
+        response = client_stt.recognize(config=config, audio=audio)
+
+        if not response.results:
+            return jsonify({"text": "", "confidence": 0})
+
+        result = response.results[0]
+        transcript = result.alternatives[0].transcript
+        confidence = result.alternatives[0].confidence
+
+        return jsonify({"text": transcript, "confidence": round(confidence, 3)})
+
+    except ImportError:
+        return jsonify({"error": "google-cloud-speech 패키지가 설치되지 않았습니다."}), 500
+    except Exception as e:
+        app.logger.error(f"STT 오류: {e}")
+        return jsonify({"error": f"음성 인식 실패: {str(e)}"}), 500
+
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True, port=5000)

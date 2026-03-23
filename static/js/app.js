@@ -382,54 +382,19 @@ async function evaluateAndComplete() {
     }
 }
 
-// ─── 음성 인식 (STT) ─────────────────────────────────────────────
+// ─── 음성 인식 (STT - Google Cloud Speech) ───────────────────────
+
+let mediaRecorder = null;
+let audioChunks = [];
 
 function initSpeechRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        console.log("Speech Recognition not supported");
-        return;
+    // MediaRecorder 지원 확인
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.log("MediaDevices not supported");
     }
-
-    recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-
-    recognition.onresult = (event) => {
-        const input = document.getElementById("chatInput");
-        let finalTranscript = "";
-        let interimTranscript = "";
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-            if (event.results[i].isFinal) {
-                finalTranscript += event.results[i][0].transcript;
-            } else {
-                interimTranscript += event.results[i][0].transcript;
-            }
-        }
-
-        input.value = finalTranscript || interimTranscript;
-    };
-
-    recognition.onend = () => {
-        isRecording = false;
-        document.getElementById("micBtn").classList.remove("recording");
-    };
-
-    recognition.onerror = (event) => {
-        console.error("Speech recognition error:", event.error);
-        isRecording = false;
-        document.getElementById("micBtn").classList.remove("recording");
-    };
 }
 
 function toggleVoice() {
-    if (!recognition) {
-        alert("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome을 사용해주세요.");
-        return;
-    }
-
     if (isRecording) {
         stopRecording();
     } else {
@@ -437,20 +402,96 @@ function toggleVoice() {
     }
 }
 
-function startRecording() {
-    if (!recognition) return;
-    isRecording = true;
-    document.getElementById("micBtn").classList.add("recording");
-    document.getElementById("chatInput").placeholder = "말씀하세요...";
-    recognition.start();
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: 1,
+                sampleRate: 48000,
+                echoCancellation: true,
+                noiseSuppression: true,
+            }
+        });
+
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'audio/webm;codecs=opus'
+        });
+
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = async () => {
+            // 마이크 스트림 종료
+            stream.getTracks().forEach(track => track.stop());
+
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            if (audioBlob.size === 0) {
+                console.warn("빈 오디오");
+                return;
+            }
+
+            // 서버로 전송하여 Google Cloud STT 처리
+            const input = document.getElementById("chatInput");
+            input.placeholder = "음성 인식 중...";
+
+            const formData = new FormData();
+            formData.append("audio", audioBlob, "recording.webm");
+
+            try {
+                const res = await fetch("/api/stt", {
+                    method: "POST",
+                    body: formData,
+                });
+                const data = await res.json();
+
+                if (data.text) {
+                    input.value = data.text;
+                    console.log(`STT 결과: "${data.text}" (신뢰도: ${data.confidence})`);
+                } else if (data.error) {
+                    console.error("STT 오류:", data.error);
+                    input.placeholder = "인식 실패. 다시 시도하세요.";
+                    setTimeout(() => {
+                        input.placeholder = "영어로 대화해보세요...";
+                    }, 2000);
+                } else {
+                    input.placeholder = "음성을 인식하지 못했습니다.";
+                    setTimeout(() => {
+                        input.placeholder = "영어로 대화해보세요...";
+                    }, 2000);
+                }
+            } catch (err) {
+                console.error("STT 요청 실패:", err);
+                input.placeholder = "음성 인식 서버 오류";
+                setTimeout(() => {
+                    input.placeholder = "영어로 대화해보세요...";
+                }, 2000);
+            }
+
+            input.placeholder = "영어로 대화해보세요...";
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        document.getElementById("micBtn").classList.add("recording");
+        document.getElementById("chatInput").placeholder = "말씀하세요... (다시 누르면 인식)";
+        console.log("녹음 시작");
+
+    } catch (err) {
+        console.error("마이크 접근 실패:", err);
+        alert("마이크 접근이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.");
+    }
 }
 
 function stopRecording() {
-    if (!recognition || !isRecording) return;
+    if (!mediaRecorder || !isRecording) return;
     isRecording = false;
     document.getElementById("micBtn").classList.remove("recording");
-    document.getElementById("chatInput").placeholder = "영어로 대화해보세요...";
-    recognition.stop();
+    mediaRecorder.stop();
+    console.log("녹음 중지 → 서버 전송");
 }
 
 // ─── 음성 합성 (TTS - AudioContext 기반) ─────────────────────────
