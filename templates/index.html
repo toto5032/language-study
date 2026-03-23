@@ -33,6 +33,12 @@
             <button class="difficulty-btn" data-level="intermediate" onclick="selectDifficulty(this)">Intermediate</button>
             <button class="difficulty-btn" data-level="advanced" onclick="selectDifficulty(this)">Advanced</button>
         </div>
+        <!-- 추천 주제 -->
+        <div class="topic-suggestions">
+            <span class="topic-suggestions-label">추천 주제:</span>
+            <div class="topic-chips" id="topicChips"></div>
+            <button class="topic-refresh-btn" onclick="refreshTopicSuggestions()" title="다른 주제 보기">🔄</button>
+        </div>
     </div>
 
     <!-- 진행률 -->
@@ -58,8 +64,9 @@
 
 <!-- 채팅 모달 -->
 <div class="modal-overlay" id="chatModal">
-    <div class="modal">
-        <div class="modal-header">
+    <div class="modal" id="chatModalBox">
+        <div class="modal-header" id="modalDragHandle">
+            <span class="drag-hint">⠿</span>
             <h3>AI 튜터와 대화</h3>
             <button class="modal-close" onclick="closeChat()">&times;</button>
         </div>
@@ -78,6 +85,19 @@
             <button class="btn btn-primary btn-sm" onclick="sendMessage()">전송</button>
         </div>
         <div class="chat-actions">
+            <div class="tts-controls">
+                <label class="tts-control-label">음성:</label>
+                <select id="ttsVoiceSelect" class="tts-select">
+                    <option value="female">👩 여성 (Emma)</option>
+                    <option value="male">👨 남성 (Ryan)</option>
+                </select>
+                <label class="tts-control-label">속도:</label>
+                <select id="ttsSpeedSelect" class="tts-select">
+                    <option value="-20%">느리게</option>
+                    <option value="-5%" selected>보통</option>
+                    <option value="+10%">빠르게</option>
+                </select>
+            </div>
             <button class="btn btn-success btn-sm" onclick="evaluateAndComplete()">학습 평가 받기</button>
         </div>
     </div>

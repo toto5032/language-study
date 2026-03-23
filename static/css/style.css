@@ -330,17 +330,35 @@ body {
     overflow: hidden;
 }
 
+.modal.dragging {
+    transition: none;
+    user-select: none;
+}
+
 .modal-header {
     padding: 20px 24px;
     border-bottom: 1px solid #e2e8f0;
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    cursor: grab;
+    gap: 8px;
+}
+
+.modal-header:active {
+    cursor: grabbing;
+}
+
+.drag-hint {
+    color: #cbd5e0;
+    font-size: 1.2rem;
+    line-height: 1;
+    user-select: none;
 }
 
 .modal-header h3 {
     font-size: 1.1rem;
     color: #2d3748;
+    flex: 1;
 }
 
 .modal-close {
@@ -630,6 +648,91 @@ body {
     font-size: 0.85rem;
     border-radius: 8px;
     margin: 8px 24px;
+}
+
+/* TTS Controls */
+.tts-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: auto;
+}
+
+.tts-control-label {
+    font-size: 0.8rem;
+    color: #718096;
+    font-weight: 600;
+}
+
+.tts-select {
+    padding: 4px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: #4a5568;
+    background: white;
+    cursor: pointer;
+    outline: none;
+}
+
+.tts-select:focus {
+    border-color: #667eea;
+}
+
+/* Topic Suggestions */
+.topic-suggestions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.topic-suggestions-label {
+    font-size: 0.9rem;
+    color: #718096;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.topic-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    flex: 1;
+}
+
+.topic-chip {
+    padding: 6px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    background: #f7fafc;
+    font-size: 0.85rem;
+    color: #4a5568;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.topic-chip:hover {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.topic-refresh-btn {
+    background: none;
+    border: none;
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 4px;
+    opacity: 0.6;
+    transition: opacity 0.2s, transform 0.3s;
+}
+
+.topic-refresh-btn:hover {
+    opacity: 1;
+    transform: rotate(180deg);
 }
 
 /* Reset Button */

@@ -10,7 +10,58 @@ document.addEventListener("DOMContentLoaded", () => {
     loadHistory();
     initSpeechRecognition();
     initTTSVoices();
+    initModalDrag();
+    refreshTopicSuggestions();
 });
+
+// ─── 추천 주제 ───────────────────────────────────────────────────
+
+const TOPIC_SUGGESTIONS = [
+    // 일상생활
+    "카페에서 주문하기", "식당에서 주문하기", "패스트푸드 주문하기",
+    "마트에서 장보기", "편의점에서 쇼핑", "옷 가게에서 쇼핑",
+    // 교통
+    "택시 타기", "버스 이용하기", "지하철 노선 물어보기",
+    "길 묻기/안내하기", "주유소에서", "렌터카 빌리기",
+    // 숙박/여행
+    "호텔 체크인/체크아웃", "에어비앤비 호스트와 대화", "관광지에서",
+    "공항에서 탑승 수속", "면세점에서 쇼핑", "환전하기",
+    // 사교
+    "처음 만난 사람과 인사", "파티에서 스몰톡", "이웃과 인사",
+    "친구와 약속 잡기", "SNS 대화", "감사/사과 표현",
+    // 직장
+    "직장 동료와 대화", "회의에서 의견 말하기", "이메일 작성",
+    "전화 통화", "면접 준비", "프레젠테이션",
+    // 건강/서비스
+    "병원 예약하기", "약국에서", "증상 설명하기",
+    "은행 업무 보기", "우체국에서", "미용실에서",
+    // 긴급/실용
+    "분실물 신고", "불만 사항 말하기", "도움 요청하기",
+    "날씨 대화", "취미 이야기", "음식 추천 받기",
+    // 가정/생활
+    "집 구하기", "수리 요청하기", "배달 음식 주문",
+    "반려동물 이야기", "운동/헬스장에서", "도서관에서"
+];
+
+function refreshTopicSuggestions() {
+    const container = document.getElementById("topicChips");
+    // 랜덤으로 5개 선택
+    const shuffled = [...TOPIC_SUGGESTIONS].sort(() => Math.random() - 0.5);
+    const selected = shuffled.slice(0, 5);
+
+    container.innerHTML = selected.map(topic =>
+        `<span class="topic-chip" onclick="selectTopic(this)">${topic}</span>`
+    ).join("");
+}
+
+function selectTopic(chip) {
+    document.getElementById("topicInput").value = chip.textContent;
+    // 선택된 칩 강조
+    document.querySelectorAll(".topic-chip").forEach(c => c.style.background = "");
+    chip.style.background = "#667eea";
+    chip.style.color = "white";
+    chip.style.borderColor = "#667eea";
+}
 
 // ─── TTS 음성 초기화 ─────────────────────────────────────────────
 
@@ -175,6 +226,7 @@ function updateProgress(sentences) {
 
 async function openChat(sentenceId) {
     currentSentenceId = sentenceId;
+    resetModalPosition();
     const overlay = document.getElementById("chatModal");
     overlay.classList.add("active");
 
@@ -401,18 +453,48 @@ function stopRecording() {
     recognition.stop();
 }
 
-// ─── 음성 합성 (TTS) ─────────────────────────────────────────────
+// ─── 음성 합성 (TTS - AudioContext 기반) ─────────────────────────
 
-function speakText(btn, text) {
-    if (!window.speechSynthesis) {
-        alert("이 브라우저는 음성 합성을 지원하지 않습니다.\nChrome 브라우저를 사용해주세요.");
-        return;
+let audioCtx = null;
+let currentSource = null;
+let ttsLoading = false;
+let currentTtsBtn = null;
+
+function getAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
+    // 사용자 제스처로 AudioContext 잠금 해제
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    return audioCtx;
+}
 
-    // 이미 재생 중이면 중지
-    if (speechSynthesis.speaking || speechSynthesis.pending) {
-        speechSynthesis.cancel();
-        document.querySelectorAll(".tts-btn.playing, .tts-btn-inline.playing").forEach(b => b.classList.remove("playing"));
+function stopCurrentAudio() {
+    if (currentSource) {
+        try { currentSource.stop(); } catch(e) {}
+        currentSource = null;
+    }
+    if (currentTtsBtn) {
+        currentTtsBtn.classList.remove("playing");
+        currentTtsBtn = null;
+    }
+    document.querySelectorAll(".tts-btn.playing, .tts-btn-inline.playing").forEach(b => {
+        b.classList.remove("playing");
+    });
+}
+
+async function speakText(btn, text) {
+    // AudioContext 잠금 해제 (사용자 클릭 컨텍스트에서 즉시 실행)
+    const ctx = getAudioContext();
+
+    // 로딩 중이면 무시
+    if (ttsLoading) return;
+
+    // 이미 재생 중이면 중지하고 끝
+    if (currentSource) {
+        stopCurrentAudio();
         return;
     }
 
@@ -420,6 +502,7 @@ function speakText(btn, text) {
     const cleanText = text
         .replace(/<[^>]*>/g, '')
         .replace(/[\u{1F600}-\u{1F9FF}]/gu, '')
+        .replace(/[#*_`]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 
@@ -428,57 +511,188 @@ function speakText(btn, text) {
         return;
     }
 
-    console.log("TTS 재생:", cleanText.substring(0, 50) + "...");
+    console.log("TTS 요청:", cleanText.substring(0, 60));
+    btn.classList.add("playing");
+    currentTtsBtn = btn;
+    ttsLoading = true;
 
-    // 음성 목록 확인 및 재로드
-    let voices = speechSynthesis.getVoices();
-    if (voices.length === 0) {
-        // 음성이 아직 로드되지 않은 경우 잠시 대기 후 재시도
-        setTimeout(() => speakText(btn, text), 200);
-        return;
+    // 음성/속도 설정 가져오기
+    const voiceSelect = document.getElementById("ttsVoiceSelect");
+    const speedSelect = document.getElementById("ttsSpeedSelect");
+    const voice = voiceSelect ? voiceSelect.value : "female";
+    const rate = speedSelect ? speedSelect.value : "-5%";
+
+    try {
+        const res = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: cleanText, rate, voice }),
+        });
+
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.error || `서버 오류 (${res.status})`);
+        }
+
+        const arrayBuffer = await res.arrayBuffer();
+        if (arrayBuffer.byteLength === 0) {
+            throw new Error("빈 오디오 응답");
+        }
+
+        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ctx.destination);
+
+        source.onended = () => {
+            btn.classList.remove("playing");
+            currentSource = null;
+            currentTtsBtn = null;
+        };
+
+        currentSource = source;
+        ttsLoading = false;
+        source.start(0);
+        console.log("TTS 재생 시작");
+    } catch (err) {
+        console.error("TTS 오류:", err);
+        btn.classList.remove("playing");
+        ttsLoading = false;
+        currentSource = null;
+        currentTtsBtn = null;
+        // 서버 TTS 실패 시 브라우저 TTS 폴백
+        speakTextFallback(btn, cleanText);
     }
+}
 
-    // 영어 음성 선택
-    const enVoice = voices.find(v => v.lang === "en-US" && v.name.includes("Google"))
-        || voices.find(v => v.lang === "en-US")
-        || voices.find(v => v.lang.startsWith("en"))
-        || null;
+// 브라우저 내장 TTS 폴백
+function speakTextFallback(btn, text) {
+    if (!window.speechSynthesis) return;
 
-    const utterance = new SpeechSynthesisUtterance(cleanText);
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
     utterance.rate = 0.85;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
 
-    if (enVoice) {
-        utterance.voice = enVoice;
-    }
+    if (ttsVoice) utterance.voice = ttsVoice;
 
     btn.classList.add("playing");
-
-    // Chrome 긴 텍스트 버그 우회
-    let resumeTimer = null;
-    if (cleanText.length > 80) {
-        resumeTimer = setInterval(() => {
-            if (speechSynthesis.speaking && !speechSynthesis.paused) {
-                speechSynthesis.pause();
-                speechSynthesis.resume();
-            }
-        }, 10000);
-    }
-
-    const cleanup = () => {
-        btn.classList.remove("playing");
-        if (resumeTimer) clearInterval(resumeTimer);
-    };
-
-    utterance.onend = cleanup;
-    utterance.onerror = (e) => {
-        console.error("TTS 오류:", e.error);
-        cleanup();
-    };
-
+    utterance.onend = () => btn.classList.remove("playing");
+    utterance.onerror = () => btn.classList.remove("playing");
     speechSynthesis.speak(utterance);
+}
+
+// ─── 모달 드래그 이동 ────────────────────────────────────────────
+
+function initModalDrag() {
+    const handle = document.getElementById("modalDragHandle");
+    const modal = document.getElementById("chatModalBox");
+    if (!handle || !modal) return;
+
+    let isDragging = false;
+    let startX, startY, initialLeft, initialTop;
+
+    handle.addEventListener("mousedown", (e) => {
+        // 닫기 버튼이나 다른 버튼 클릭 시 드래그 안 함
+        if (e.target.closest("button")) return;
+
+        isDragging = true;
+        modal.classList.add("dragging");
+
+        // 현재 모달 위치 계산
+        const rect = modal.getBoundingClientRect();
+        // position을 absolute로 전환
+        modal.style.position = "absolute";
+        modal.style.left = rect.left + "px";
+        modal.style.top = rect.top + "px";
+        modal.style.margin = "0";
+
+        startX = e.clientX;
+        startY = e.clientY;
+        initialLeft = rect.left;
+        initialTop = rect.top;
+
+        e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        let newLeft = initialLeft + dx;
+        let newTop = initialTop + dy;
+
+        // 화면 밖으로 나가지 않게 제한
+        const maxLeft = window.innerWidth - modal.offsetWidth;
+        const maxTop = window.innerHeight - modal.offsetHeight;
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+
+        modal.style.left = newLeft + "px";
+        modal.style.top = newTop + "px";
+    });
+
+    document.addEventListener("mouseup", () => {
+        if (!isDragging) return;
+        isDragging = false;
+        modal.classList.remove("dragging");
+    });
+
+    // 터치 지원 (모바일)
+    handle.addEventListener("touchstart", (e) => {
+        if (e.target.closest("button")) return;
+
+        isDragging = true;
+        modal.classList.add("dragging");
+
+        const rect = modal.getBoundingClientRect();
+        modal.style.position = "absolute";
+        modal.style.left = rect.left + "px";
+        modal.style.top = rect.top + "px";
+        modal.style.margin = "0";
+
+        const touch = e.touches[0];
+        startX = touch.clientX;
+        startY = touch.clientY;
+        initialLeft = rect.left;
+        initialTop = rect.top;
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+        if (!isDragging) return;
+
+        const touch = e.touches[0];
+        const dx = touch.clientX - startX;
+        const dy = touch.clientY - startY;
+
+        let newLeft = initialLeft + dx;
+        let newTop = initialTop + dy;
+
+        const maxLeft = window.innerWidth - modal.offsetWidth;
+        const maxTop = window.innerHeight - modal.offsetHeight;
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+
+        modal.style.left = newLeft + "px";
+        modal.style.top = newTop + "px";
+    }, { passive: true });
+
+    document.addEventListener("touchend", () => {
+        if (!isDragging) return;
+        isDragging = false;
+        modal.classList.remove("dragging");
+    });
+}
+
+// 모달 위치 초기화 (열 때마다 중앙으로)
+function resetModalPosition() {
+    const modal = document.getElementById("chatModalBox");
+    if (!modal) return;
+    modal.style.position = "";
+    modal.style.left = "";
+    modal.style.top = "";
+    modal.style.margin = "";
 }
 
 // ─── 키보드 이벤트 ───────────────────────────────────────────────
@@ -491,7 +705,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 document.getElementById("chatModal")?.addEventListener("click", (e) => {
-    if (e.target.classList.contains("modal-overlay")) {
+    if (e.target === e.currentTarget) {
         closeChat();
     }
 });
